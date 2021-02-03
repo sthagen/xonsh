@@ -1,10 +1,10 @@
 **Added:**
 
-* <news item>
+* abbrevs now support callbacks
 
 **Changed:**
 
-* tests for vc-branch should accept both master and main
+* <news item>
 
 **Deprecated:**
 

@@ -1,7 +1,6 @@
 **Added:**
 
-* Added ``xontrib-zoxide`` to the list of xontribs.
-* Added ``xontrib-gitinfo`` to the list of xontribs.
+* Added a new xontrib ``tcg``
 
 **Changed:**
 
