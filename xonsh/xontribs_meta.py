@@ -401,6 +401,16 @@ def define_xontribs():
                 url="https://github.com/scopatz/xontrib-kitty",
             ),
         ),
+        "linuxbrew": Xontrib(
+            url="https://github.com/eugenesvk/xontrib-linuxbrew",
+            description="Add Homebrew's shell environment to xonsh shell on Linux",
+            package=_XontribPkg(
+                name="xontrib-linuxbrew",
+                license="MIT",
+                install={"pip": "xpip install xontrib-linuxbrew"},
+                url="https://github.com/eugenesvk/xontrib-linuxbrew",
+            ),
+        ),
         "mpl": Xontrib(
             url="http://xon.sh",
             description="Matplotlib hooks for xonsh, including the new 'mpl' "
@@ -495,6 +505,16 @@ def define_xontribs():
             url="http://xon.sh",
             description="Adds return code info to the prompt",
             package=core_pkg,
+        ),
+        "prompt_starship": Xontrib(
+            url="https://github.com/anki-code/xontrib-prompt-starship",
+            description="Starship prompt in xonsh shell.",
+            package=_XontribPkg(
+                name="xontrib-prompt-starship",
+                license="MIT",
+                install={"pip": "xpip install xontrib-prompt-starship"},
+                url="https://github.com/anki-code/xontrib-prompt-starship",
+            ),
         ),
         "prompt_vi_mode": Xontrib(
             url="https://github.com/t184256/xontrib-prompt-vi-mode",

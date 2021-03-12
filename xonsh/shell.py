@@ -131,15 +131,8 @@ class Shell(object):
         "d": "dumb",
         "dumb": "dumb",
         "ptk": "prompt_toolkit",  # there's only 1 prompt_toolkit shell (now)
-        "ptk1": "prompt_toolkit",  # allow any old config reference to use it
-        "ptk2": "prompt_toolkit",  # so long as user actually  has ptk2+ installed.
         "prompt-toolkit": "prompt_toolkit",
         "prompt_toolkit": "prompt_toolkit",
-        "prompt-toolkit1": "prompt_toolkit",
-        "prompt-toolkit2": "prompt_toolkit",
-        "prompt-toolkit3": "prompt_toolkit",
-        "prompt_toolkit3": "prompt_toolkit",
-        "ptk3": "prompt_toolkit",
         "rand": "random",
         "random": "random",
         "rl": "readline",
@@ -211,6 +204,7 @@ class Shell(object):
         builtins.__xonsh__.history = hist = xhm.construct_history(
             env=env.detype(), ts=[time.time(), None], locked=True
         )
+        env["XONSH_HISTORY_FILE"] = hist.filename
 
         shell_type = self.choose_shell_type(shell_type, env)
 
