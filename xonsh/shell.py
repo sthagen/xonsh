@@ -205,7 +205,10 @@ class Shell(object):
         # build history backend before creating shell
         if env.get("XONSH_INTERACTIVE"):
             builtins.__xonsh__.history = hist = xhm.construct_history(
-                env=env.detype(), ts=[time.time(), None], locked=True
+                env=env.detype(),
+                ts=[time.time(), None],
+                locked=True,
+                filename=env.get("XONSH_HISTORY_FILE", None),
             )
             env["XONSH_HISTORY_FILE"] = hist.filename
         else:
@@ -231,7 +234,7 @@ class Shell(object):
             raise XonshError("{} is not recognized as a shell type".format(shell_type))
         self.shell = shell_class(execer=self.execer, ctx=self.ctx, **kwargs)
         # allows history garbage collector to start running
-        if hist and hist.gc is not None:
+        if hist.gc is not None:
             hist.gc.wait_for_shell = False
 
     def __getattr__(self, attr):
