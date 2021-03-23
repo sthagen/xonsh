@@ -22,6 +22,7 @@ from xonsh.platform import (
     ON_OPENBSD,
     ON_DRAGONFLY,
     ON_POSIX,
+    IN_APPIMAGE,
 )
 from xonsh.tools import (
     XonshError,
@@ -199,7 +200,7 @@ class ExecAlias:
         src : str
             Source code that will be
         """
-        self.src = src if src.endswith("\n") else src + "\n"
+        self.src = src
         self.filename = filename
 
     def __call__(
@@ -743,7 +744,7 @@ def showcmd(args, stdin=None):
 
     Example:
     -------
-      >>> showcmd echo $USER can't hear "the sea"
+      >>> showcmd echo $USER "can't" hear "the sea"
       ['echo', 'I', "can't", 'hear', 'the sea']
     """
     if len(args) == 0 or (len(args) == 1 and args[0] in {"-h", "--help"}):
@@ -765,7 +766,7 @@ def detect_xpip_alias():
 
     basecmd = [sys.executable, "-m", "pip"]
     try:
-        if ON_WINDOWS:
+        if ON_WINDOWS or IN_APPIMAGE:
             # XXX: Does windows have an installation mode that requires UAC?
             return basecmd
         elif not os.access(os.path.dirname(sys.executable), os.W_OK):
