@@ -9,7 +9,10 @@ import xonsh.tools as xt
 import xonsh.platform as xp
 import xonsh.lazyasd as xl
 
-from xonsh.completers.tools import RichCompletion, get_filter_function
+from xonsh.completers.tools import (
+    RichCompletion,
+    contextual_completer,
+)
 
 
 @xl.lazyobject
@@ -114,20 +117,17 @@ def _startswithnorm(x, start, startlow=None):
     return x.startswith(start)
 
 
-def _env(prefix):
-    if prefix.startswith("$"):
-        key = prefix[1:]
-        return {
-            "$" + k for k in builtins.__xonsh__.env if get_filter_function()(k, key)
-        }
-    return ()
-
-
 def _dots(prefix):
+    complete_dots = builtins.__xonsh__.env.get("COMPLETE_DOTS", "matching").lower()
+    if complete_dots == "never":
+        return ()
     slash = xt.get_sep()
     if slash == "\\":
         slash = ""
-    if prefix in {"", "."}:
+    prefixes = {"."}
+    if complete_dots == "always":
+        prefixes.add("")
+    if prefix in prefixes:
         return ("." + slash, ".." + slash)
     elif prefix == "..":
         return (".." + slash,)
@@ -284,7 +284,7 @@ def _expand_one(sofar, nextone, csc):
     return out
 
 
-def complete_path(prefix, line, start, end, ctx, cdpath=True, filtfunc=None):
+def _complete_path_raw(prefix, line, start, end, ctx, cdpath=True, filtfunc=None):
     """Completes based on a path name."""
     # string stuff for automatic quoting
     path_str_start = ""
@@ -351,15 +351,26 @@ def complete_path(prefix, line, start, end, ctx, cdpath=True, filtfunc=None):
         {_normpath(s) for s in paths}, path_str_start, path_str_end, append_end, cdpath
     )
     paths.update(filter(filtfunc, _dots(prefix)))
-    paths.update(filter(filtfunc, _env(prefix)))
     return paths, lprefix
 
 
+@contextual_completer
+def complete_path(context):
+    if context.command:
+        return contextual_complete_path(context.command)
+    elif context.python:
+        line = context.python.prefix
+        # simple prefix _complete_path_raw will handle gracefully:
+        prefix = line.rsplit(" ", 1)[1]
+        return _complete_path_raw(prefix, line, len(line) - len(prefix), len(line), {})
+    return set(), 0
+
+
 def contextual_complete_path(command: CommandContext, cdpath=True, filtfunc=None):
-    # ``complete_path`` may add opening quotes:
+    # ``_complete_path_raw`` may add opening quotes:
     prefix = command.raw_prefix
 
-    completions, lprefix = complete_path(
+    completions, lprefix = _complete_path_raw(
         prefix,
         prefix,
         0,
@@ -369,7 +380,7 @@ def contextual_complete_path(command: CommandContext, cdpath=True, filtfunc=None
         filtfunc=filtfunc,
     )
 
-    # ``complete_path`` may have added closing quotes:
+    # ``_complete_path_raw`` may have added closing quotes:
     rich_completions = {
         RichCompletion(comp, append_closing_quote=False) for comp in completions
     }

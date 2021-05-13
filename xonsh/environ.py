@@ -6,6 +6,7 @@ import sys
 import pprint
 import textwrap
 import locale
+import glob
 import builtins
 import warnings
 import contextlib
@@ -88,6 +89,7 @@ from xonsh.tools import (
     dict_to_str,
     to_int_or_none,
     DefaultNotGivenType,
+    to_repr_pretty_,
 )
 from xonsh.ansi_colors import (
     ansi_color_escape_code_to_name,
@@ -395,14 +397,7 @@ class LsColors(cabc.MutableMapping):
     def __repr__(self):
         return "{0}.{1}(...)".format(self.__class__.__module__, self.__class__.__name__)
 
-    def _repr_pretty_(self, p, cycle):
-        name = "{0}.{1}".format(self.__class__.__module__, self.__class__.__name__)
-        with p.group(0, name + "(", ")"):
-            if cycle:
-                p.text("...")
-            elif len(self):
-                p.break_()
-                p.pretty(dict(self))
+    _repr_pretty_ = to_repr_pretty_
 
     def is_target(self, key) -> bool:
         """Return True if key is 'target'"""
@@ -608,6 +603,15 @@ def default_xonshrc(env):
             + "Please migrate to xonshrc."
         )
     return dxrc
+
+
+@default_value
+def default_xonshrcdir(env):
+    xdgrcd = os.path.join(xonsh_config_dir(env), "rc.d")
+    if ON_WINDOWS:
+        return (os.path.join(os_environ["ALLUSERSPROFILE"], "xonsh", "rc.d"), xdgrcd)
+    else:
+        return ("/etc/xonsh/rc.d", xdgrcd)
 
 
 @default_value
@@ -946,6 +950,18 @@ class GeneralSetting(Xettings):
         ),
         type_str="env_path",
     )
+    XONSHRC_DIR = Var.with_default(
+        default_xonshrcdir,
+        "A list of directories, from which all .xsh files will be loaded "
+        "at startup, sorted in lexographic order. Files in these directories "
+        "are loaded after any files in XONSHRC.",
+        doc_default=(
+            "On Linux & Mac OSX: ``['/etc/xonsh/rc.d', '~/.config/xonsh/rc.d']``\n"
+            "On Windows: "
+            "``['%ALLUSERSPROFILE%\\\\xonsh\\\\rc.d', '~/.config/xonsh/rc.d']``"
+        ),
+        type_str="env_path",
+    )
     XONSH_APPEND_NEWLINE = Var.with_default(
         xonsh_append_newline,
         "Append new line when a partial line is preserved in output.",
@@ -1050,11 +1066,6 @@ class GeneralSetting(Xettings):
         "Whether or not to store the stdin that is supplied to the "
         "``!()`` and ``![]`` operators.",
     )
-    XONSH_STORE_STDOUT = Var.with_default(
-        False,
-        "Whether or not to store the ``stdout`` and ``stderr`` streams in the "
-        "history files.",
-    )
     XONSH_STYLE_OVERRIDES = Var(
         is_str_str_dict,
         to_str_str_dict,
@@ -1114,6 +1125,14 @@ class ChangeDirSetting(Xettings):
     PUSHD_SILENT = Var.with_default(
         False,
         "Whether or not to suppress directory stack manipulation output.",
+    )
+    COMPLETE_DOTS = Var.with_default(
+        "matching",
+        doc="Flag to specify how current and previous directories should be "
+        "tab completed  ('./', '../'):"
+        "    - ``always`` Always complete paths with ./ and ../\n"
+        "    - ``never`` Never complete paths with ./ and ../\n"
+        "    - ``matching`` Complete if path starts with . or ..",
     )
 
 
@@ -1180,21 +1199,6 @@ class PromptSetting(Xettings):
         "",
         "The string used to show a shortened directory in a shortened cwd, "
         "e.g. ``'…'``.",
-    )
-    HISTCONTROL = Var(
-        is_string_set,
-        csv_to_set,
-        set_to_csv,
-        set(),
-        "A set of strings (comma-separated list in string form) of options "
-        "that determine what commands are saved to the history list. By "
-        "default all commands are saved. The option ``ignoredups`` will not "
-        "save the command if it matches the previous command. The option "
-        "``ignoreerr`` will cause any commands that fail (i.e. return non-zero "
-        "exit status) to not be added to the history list. The option "
-        "``erasedups`` will remove all previous commands that matches and updates the frequency. "
-        "Note: ``erasedups`` is supported only in sqlite backend).",
-        can_store_as_str=True,
     )
     IGNOREEOF = Var.with_default(
         False,
@@ -1396,42 +1400,11 @@ class PromptSetting(Xettings):
         "* ``XONSH_GITSTATUS_BEHIND``: ``↓·``\n",
         pattern="XONSH_GITSTATUS_*",
     )
-    XONSH_HISTORY_BACKEND = Var(
-        is_history_backend,
-        to_itself,
-        ensure_string,
-        "json",
-        "Set which history backend to use. Options are: 'json', "
-        "'sqlite', and 'dummy'. The default is 'json'. "
-        "``XONSH_HISTORY_BACKEND`` also accepts a class type that inherits "
-        "from ``xonsh.history.base.History``, or its instance.",
-    )
-    XONSH_HISTORY_FILE = Var.with_default(
-        None,
-        "Location of history file set by history backend (default) or set by user in RC file.",
-        is_configurable=False,
-        doc_default="None",
-        type_str="path",
-    )
     XONSH_HISTORY_MATCH_ANYWHERE = Var.with_default(
         False,
         "When searching history from a partial string (by pressing up arrow), "
         "match command history anywhere in a given line (not just the start)",
         doc_default="False",
-    )
-    XONSH_HISTORY_SIZE = Var(
-        is_history_tuple,
-        to_history_tuple,
-        history_tuple_to_str,
-        (8128, "commands"),
-        "Value and units tuple that sets the size of history after garbage "
-        "collection. Canonical units are:\n\n"
-        "- ``commands`` for the number of past commands executed,\n"
-        "- ``files`` for the number of history files to keep,\n"
-        "- ``s`` for the number of seconds in the past that are allowed, and\n"
-        "- ``b`` for the number of bytes that history may consume.\n\n"
-        "Common abbreviations, such as '6 months' or '1 GB' are also allowed.",
-        doc_default="``(8128, 'commands')`` or ``'8128 commands'``",
     )
     XONSH_STDERR_PREFIX = Var.with_default(
         "",
@@ -1448,6 +1421,67 @@ class PromptSetting(Xettings):
         "conjunction with ``$XONSH_STDERR_PREFIX`` to start the block."
         "For example, to have stderr appear on a red background, the "
         'prefix & postfix pair would be "{BACKGROUND_RED}" & "{RESET}".',
+    )
+
+
+class PromptHistorySetting(Xettings):
+    """Interactive Prompt History"""
+
+    XONSH_HISTORY_BACKEND = Var(
+        is_history_backend,
+        to_itself,
+        ensure_string,
+        "json",
+        "Set which history backend to use. Options are: 'json', "
+        "'sqlite', and 'dummy'. The default is 'json'. "
+        "``XONSH_HISTORY_BACKEND`` also accepts a class type that inherits "
+        "from ``xonsh.history.base.History``, or its instance.",
+    )
+    XONSH_HISTORY_FILE = Var.with_default(
+        None,
+        "Location of history file set by history backend (default) or set by the user.",
+        is_configurable=False,
+        doc_default="None",
+        type_str="path",
+    )
+    HISTCONTROL = Var(
+        is_string_set,
+        csv_to_set,
+        set_to_csv,
+        set(),
+        "A set of strings (comma-separated list in string form) of options "
+        "that determine what commands are saved to the history list. By "
+        "default all commands are saved. The option ``ignoredups`` will not "
+        "save the command if it matches the previous command. The option "
+        "``ignoreerr`` will cause any commands that fail (i.e. return non-zero "
+        "exit status) to not be added to the history list. The option "
+        "``erasedups`` will remove all previous commands that matches and updates the frequency. "
+        "Note: ``erasedups`` is supported only in sqlite backend).",
+        can_store_as_str=True,
+    )
+    XONSH_HISTORY_SIZE = Var(
+        is_history_tuple,
+        to_history_tuple,
+        history_tuple_to_str,
+        (8128, "commands"),
+        "Value and units tuple that sets the size of history after garbage "
+        "collection. Canonical units are:\n\n"
+        "- ``commands`` for the number of past commands executed,\n"
+        "- ``files`` for the number of history files to keep,\n"
+        "- ``s`` for the number of seconds in the past that are allowed, and\n"
+        "- ``b`` for the number of bytes that history may consume.\n\n"
+        "Common abbreviations, such as '6 months' or '1 GB' are also allowed.",
+        doc_default="``(8128, 'commands')`` or ``'8128 commands'``",
+    )
+    XONSH_STORE_STDOUT = Var.with_default(
+        False,
+        "Whether or not to store the ``stdout`` and ``stderr`` streams in the "
+        "history files.",
+    )
+    XONSH_HISTORY_SAVE_CWD = Var.with_default(
+        True,
+        "Save current working directory to the history.",
+        doc_default="True",
     )
 
 
@@ -1499,6 +1533,11 @@ class PTKSetting(PromptSetting):  # sub-classing -> sub-group
         False,
         "Whether Xonsh will auto-insert matching parentheses, brackets, and "
         "quotes. Only available under the prompt-toolkit shell.",
+    )
+    XONSH_COPY_ON_DELETE = Var.with_default(
+        False,
+        "Whether to copy words/lines to clipboard on deletion (must be set in .xonshrc file)."
+        "Only available under the prompt-toolkit shell.",
     )
 
 
@@ -2011,15 +2050,6 @@ class Env(cabc.MutableMapping):
     def __repr__(self):
         return "{0}.{1}(...)".format(self.__class__.__module__, self.__class__.__name__)
 
-    def _repr_pretty_(self, p, cycle):
-        name = "{0}.{1}".format(self.__class__.__module__, self.__class__.__name__)
-        with p.group(0, name + "(", ")"):
-            if cycle:
-                p.text("...")
-            elif len(self):
-                p.break_()
-                p.pretty(dict(self))
-
     def register(
         self,
         name,
@@ -2121,21 +2151,40 @@ def locate_binary(name):
     return builtins.__xonsh__.commands_cache.locate_binary(name)
 
 
-def xonshrc_context(rcfiles=None, execer=None, ctx=None, env=None, login=True):
-    """Attempts to read in all xonshrc files and return the context."""
+def xonshrc_context(
+    rcfiles=None, rcdirs=None, execer=None, ctx=None, env=None, login=True
+):
+    """
+    Attempts to read in all xonshrc files and return the context.
+    The xonsh environment here is updated to reflect which RC files and
+    directory locations will have been loaded (if they existed). The updated
+    environment vars might be different (or empty) depending on CLI options
+    (--rc, --no-rc) or whether the session is interactive.
+    """
     loaded = env["LOADED_RC_FILES"] = []
     ctx = {} if ctx is None else ctx
-    if rcfiles is None:
+    if rcfiles is None and rcdirs is None:
         return env
     orig_thread = env.get("THREAD_SUBPROCS")
     env["THREAD_SUBPROCS"] = None
-    env["XONSHRC"] = tuple(rcfiles)
-    for rcfile in rcfiles:
-        if not os.path.isfile(rcfile):
-            loaded.append(False)
-            continue
-        status = xonsh_script_run_control(rcfile, ctx, env, execer=execer, login=login)
-        loaded.append(status)
+    if rcfiles is not None:
+        env["XONSHRC"] = tuple(rcfiles)
+        for rcfile in rcfiles:
+            if not os.path.isfile(rcfile):
+                loaded.append(False)
+                continue
+            status = xonsh_script_run_control(
+                rcfile, ctx, env, execer=execer, login=login
+            )
+            loaded.append(status)
+    if rcdirs is not None:
+        env["XONSHRC_DIR"] = tuple(rcdirs)
+        for rcdir in rcdirs:
+            if os.path.isdir(rcdir):
+                for rcfile in sorted(glob.glob(os.path.join(rcdir, "*.xsh"))):
+                    status = xonsh_script_run_control(
+                        rcfile, ctx, env, execer=execer, login=login
+                    )
     if env["THREAD_SUBPROCS"] is None:
         env["THREAD_SUBPROCS"] = orig_thread
     return ctx

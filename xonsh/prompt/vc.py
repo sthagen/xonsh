@@ -33,11 +33,10 @@ def _get_git_branch(q):
     try:
         cmd = ["git", "rev-parse", "--abbrev-ref", "HEAD"]
         branch = xt.decode_bytes(_run_git_cmd(cmd))
-        branch = branch.splitlines()[0] or None
     except (subprocess.CalledProcessError, OSError, FileNotFoundError):
         q.put(None)
     else:
-        q.put(branch)
+        q.put(branch.splitlines()[0] if branch else None)
 
 
 def get_git_branch():
@@ -143,7 +142,7 @@ def _first_branch_timeout_message():
 
 
 def _vc_has(binary):
-    """ This allows us to locate binaries after git only if necessary """
+    """This allows us to locate binaries after git only if necessary"""
     cmds = builtins.__xonsh__.commands_cache
     if cmds.is_empty():
         return bool(cmds.locate_binary(binary, ignore_alias=True))
