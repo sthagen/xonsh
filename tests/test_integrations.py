@@ -8,6 +8,7 @@ import subprocess as sp
 
 import pytest
 
+import xonsh
 from xonsh.lib.os import indir
 
 from tools import (
@@ -39,7 +40,12 @@ skip_if_no_sleep = pytest.mark.skipif(
 
 
 def run_xonsh(
-    cmd, stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.STDOUT, single_command=False
+    cmd,
+    stdin=sp.PIPE,
+    stdout=sp.PIPE,
+    stderr=sp.STDOUT,
+    single_command=False,
+    interactive=False,
 ):
     env = dict(os.environ)
     env["PATH"] = PATH
@@ -48,11 +54,13 @@ def run_xonsh(
     env["RAISE_SUBPROC_ERROR"] = "0"
     env["PROMPT"] = ""
     xonsh = shutil.which("xonsh", path=PATH)
+    args = [xonsh, "--no-rc"]
+    if interactive:
+        args.append("-i")
     if single_command:
-        args = [xonsh, "--no-rc", "-c", cmd]
+        args += ["-c", cmd]
         input = None
     else:
-        args = [xonsh, "--no-rc"]
         input = cmd
 
     proc = sp.Popen(
@@ -506,6 +514,10 @@ first
     ),
 ]
 
+if not ON_WINDOWS:
+    ALL_PLATFORMS = tuple(ALL_PLATFORMS) + tuple(UNIX_TESTS)
+
+
 @skip_if_no_xonsh
 @pytest.mark.parametrize("case", ALL_PLATFORMS)
 def test_script(case):
@@ -516,12 +528,6 @@ def test_script(case):
     else:
         assert exp_out == out
     assert exp_rtn == rtn
-
-@skip_if_no_xonsh
-@skip_if_on_windows
-@pytest.mark.parametrize("case", UNIX_TESTS)
-def test_unix_tests(case):
-    test_script(case)
 
 
 ALL_PLATFORMS_STDERR = [
@@ -557,7 +563,11 @@ def test_script_stderr(case):
         ("pwd", None, lambda: os.getcwd() + "\n"),
         ("echo WORKING", None, "WORKING\n"),
         ("ls -f", lambda out: out.splitlines().sort(), os.listdir().sort()),
-        ("$FOO='foo' $BAR=2 xonsh -c r'echo -n $FOO$BAR'", None, "foo2",),
+        (
+            "$FOO='foo' $BAR=2 xonsh -c r'echo -n $FOO$BAR'",
+            None,
+            "foo2",
+        ),
     ],
 )
 def test_single_command_no_windows(cmd, fmt, exp):
@@ -591,6 +601,26 @@ def test_open_quote_syntax_error():
 _bad_case = pytest.mark.skipif(
     ON_DARWIN or ON_WINDOWS or ON_TRAVIS, reason="bad platforms"
 )
+
+
+@skip_if_no_xonsh
+def test_atdollar_no_output():
+    # see issue 1521
+    script = """
+def _echo(args):
+    print(' '.join(args))
+aliases['echo'] = _echo
+@$(echo)
+"""
+    out, err, rtn = run_xonsh(script, stderr=sp.PIPE)
+    assert "command is empty" in err
+
+
+@skip_if_no_xonsh
+def test_empty_command():
+    script = "$['']\n"
+    out, err, rtn = run_xonsh(script, stderr=sp.PIPE)
+    assert "command is empty" in err
 
 
 @skip_if_no_xonsh
@@ -685,7 +715,9 @@ def test_xonsh_no_close_fds():
 @skip_if_no_xonsh
 @pytest.mark.parametrize(
     "cmd, fmt, exp",
-    [("cat tttt | wc", lambda x: x > "", True),],  # noqa E231 (black removes space)
+    [
+        ("cat tttt | wc", lambda x: x > "", True),
+    ],  # noqa E231 (black removes space)
 )
 def test_pipe_between_subprocs(cmd, fmt, exp):
     "verify pipe between subprocesses doesn't throw an exception"
@@ -749,3 +781,22 @@ def test_single_command_return_code(cmd, exp_rtn):
 @skip_if_on_darwin
 def test_argv0():
     check_run_xonsh("checkargv0.xsh", None, "OK\n")
+
+
+@pytest.mark.parametrize("interactive", [True, False])
+def test_loading_correctly(monkeypatch, interactive):
+    # Ensure everything loads correctly in interactive mode (e.g. #4289)
+    monkeypatch.setenv("SHELL_TYPE", "prompt_toolkit")
+    monkeypatch.setenv("XONSH_LOGIN", "1")
+    monkeypatch.setenv("XONSH_INTERACTIVE", "1")
+    out, err, ret = run_xonsh(
+        "import xonsh; echo -n AAA @(xonsh.__file__) BBB",
+        interactive=interactive,
+        single_command=True,
+    )
+    assert not err
+    assert ret == 0
+    our_xonsh = (
+        xonsh.__file__
+    )  # make sure xonsh didn't fail and fallback to the system shell
+    assert f"AAA {our_xonsh} BBB" in out  # ignore tty warnings/prompt text

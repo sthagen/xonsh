@@ -1,8 +1,8 @@
 import argparse as ap
-import builtins
 
 import xonsh.cli_utils as xcli
 import xonsh.lazyasd as xl
+from xonsh.built_ins import XSH
 from xonsh.completers.completer import (
     list_completers,
     remove_completer,
@@ -49,7 +49,7 @@ def _register_completer(name: str, func: str, pos="start", stack=None):
         position into the list of completers at which the new
         completer should be added.  It can be one of the following values:
         * "start" indicates that the completer should be added to the start of
-                 the list of completers (it should be run before all others)
+                 the list of completers (it should be run before all other exclusive completers)
         * "end" indicates that the completer should be added to the end of the
                list of completers (it should be run after all others)
         * ">KEY", where KEY is a pre-existing name, indicates that this should
@@ -60,7 +60,7 @@ def _register_completer(name: str, func: str, pos="start", stack=None):
     """
     err = None
     func_name = func
-    xsh = builtins.__xonsh__  # type: ignore
+    xsh = XSH
     if name in xsh.completers:
         err = f"The name {name} is already a registered completer function."
     else:

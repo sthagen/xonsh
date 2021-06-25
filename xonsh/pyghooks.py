@@ -10,6 +10,7 @@ from collections.abc import MutableMapping
 from keyword import iskeyword
 import typing as tp
 
+from xonsh.built_ins import XSH
 from xonsh.lazyimps import os_listxattr
 
 from pygments.lexer import inherit, bygroups, include
@@ -242,7 +243,7 @@ def color_token_by_name(xc: tuple, styles=None) -> _TokenType:
     """Returns (color) token corresponding to Xonsh color tuple, side effect: defines token is defined in styles"""
     if not styles:
         try:
-            styles = builtins.__xonsh__.shell.shell.styler.styles  # type:ignore
+            styles = XSH.shell.shell.styler.styles  # type:ignore
         except AttributeError:
             return Color
 
@@ -264,7 +265,7 @@ def partial_color_tokenize(template):
     of tuples mapping the token to the string which has that color.
     These sub-strings maybe templates themselves.
     """
-    if builtins.__xonsh__.shell is not None:
+    if XSH.shell is not None:
         styles = __xonsh__.shell.shell.styler.styles
     else:
         styles = None
@@ -390,7 +391,7 @@ class XonshStyle(Style):
                     file=sys.stderr,
                 )
                 value = "default"
-                builtins.__xonsh__.env["XONSH_COLOR_STYLE"] = value
+                XSH.env["XONSH_COLOR_STYLE"] = value
         cmap = STYLES[value]
         if value == "default":
             self._smap = XONSH_BASE_STYLE.copy()
@@ -411,13 +412,11 @@ class XonshStyle(Style):
         )
         self._style_name = value
 
-        for file_type, xonsh_color in builtins.__xonsh__.env.get(
-            "LS_COLORS", {}
-        ).items():
+        for file_type, xonsh_color in XSH.env.get("LS_COLORS", {}).items():
             color_token = color_token_by_name(xonsh_color, self.styles)
             file_color_tokens[file_type] = color_token
 
-        if ON_WINDOWS and "prompt_toolkit" in builtins.__xonsh__.shell.shell_type:
+        if ON_WINDOWS and "prompt_toolkit" in XSH.shell.shell_type:
             self.enhance_colors_for_cmd_exe()
 
     @style_name.deleter
@@ -436,7 +435,7 @@ class XonshStyle(Style):
         When using the default style all blue and dark red colors
         are changed to CYAN and intense red.
         """
-        env = builtins.__xonsh__.env
+        env = XSH.env
         # Ensure we are not using the new Windows Terminal, ConEmu or Visual Stuio Code
         if "WT_SESSION" in env or "CONEMUANSI" in env or "VSCODE_PID" in env:
             return
@@ -1298,7 +1297,7 @@ del (
 def make_pygments_style(palette):
     """Makes a pygments style based on a color palette."""
     global Color
-    style = {getattr(Color, "DEFAULT"): "noinherit"}
+    style = {Color.DEFAULT: "noinherit"}
     for name, t in BASE_XONSH_COLORS.items():
         color = find_closest_color(t, palette)
         style[getattr(Color, name)] = "#" + color
@@ -1367,7 +1366,7 @@ def XonshTerminal256Formatter():
             super().__init__(*args, **kwargs)
             # just keep the opening token for colors.
             color_names = set(map(str, Color.subtypes))
-            for name, (opener, closer) in self.style_string.items():
+            for name, (opener, _) in self.style_string.items():
                 if name in color_names:
                     self.style_string[name] = (opener, "")
             # special case DEFAULT, because it is special.
@@ -1393,7 +1392,7 @@ def XonshHtmlFormatter():
             return ""
         elif text.startswith("var") or text.startswith("calc"):
             return text
-        assert False, "wrong color format %r" % text
+        raise AssertionError("wrong color format %r" % text)
 
     class XonshHtmlFormatterProxy(html.HtmlFormatter):
         """Proxy class for xonsh HTML formatting that understands.
@@ -1522,7 +1521,7 @@ def color_file(file_path: str, path_stat: os.stat_result) -> tp.Tuple[_TokenType
          This is arguably a bug.
     """
 
-    lsc = builtins.__xonsh__.env["LS_COLORS"]  # type:ignore
+    lsc = XSH.env["LS_COLORS"]  # type:ignore
     color_key = "fi"
 
     # if symlink, get info on (final) target
@@ -1598,19 +1597,19 @@ def color_file(file_path: str, path_stat: os.stat_result) -> tp.Tuple[_TokenType
 def _command_is_valid(cmd):
     try:
         cmd_abspath = os.path.abspath(os.path.expanduser(cmd))
-    except (FileNotFoundError, OSError):
+    except (OSError):
         return False
-    return (cmd in builtins.__xonsh__.commands_cache and not iskeyword(cmd)) or (
+    return (cmd in XSH.commands_cache and not iskeyword(cmd)) or (
         os.path.isfile(cmd_abspath) and os.access(cmd_abspath, os.X_OK)
     )
 
 
 def _command_is_autocd(cmd):
-    if not builtins.__xonsh__.env.get("AUTO_CD", False):
+    if not XSH.env.get("AUTO_CD", False):
         return False
     try:
         cmd_abspath = os.path.abspath(os.path.expanduser(cmd))
-    except (FileNotFoundError, OSError):
+    except (OSError):
         return False
     return os.path.isdir(cmd_abspath)
 
@@ -1631,7 +1630,7 @@ def subproc_arg_callback(_, match):
         path = os.path.expanduser(text)
         path_stat = os.lstat(path)  # lstat() will raise FNF if not a real file
         yieldVal, _ = color_file(path, path_stat)
-    except (FileNotFoundError, OSError):
+    except (OSError):
         pass
 
     yield (match.start(), yieldVal, text)
@@ -1653,15 +1652,15 @@ class XonshLexer(Python3Lexer):
         if not hasattr(builtins, "__xonsh__"):
             from argparse import Namespace
 
-            setattr(builtins, "__xonsh__", Namespace())
-        if not hasattr(builtins.__xonsh__, "env"):
-            setattr(builtins.__xonsh__, "env", {})
+            builtins.__xonsh__ = Namespace()
+        if not hasattr(XSH, "env"):
+            XSH.env = {}
             if ON_WINDOWS:
                 pathext = os_environ.get("PATHEXT", [".EXE", ".BAT", ".CMD"])
-                builtins.__xonsh__.env["PATHEXT"] = pathext.split(os.pathsep)
-        if not hasattr(builtins.__xonsh__, "commands_cache"):
-            setattr(builtins.__xonsh__, "commands_cache", CommandsCache())
-        _ = builtins.__xonsh__.commands_cache.all_commands  # NOQA
+                XSH.env["PATHEXT"] = pathext.split(os.pathsep)
+        if not getattr(XSH, "commands_cache", None):
+            XSH.commands_cache = CommandsCache()
+        _ = XSH.commands_cache.all_commands  # NOQA
         super().__init__(*args, **kwargs)
 
     tokens = {

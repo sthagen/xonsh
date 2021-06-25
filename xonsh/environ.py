@@ -7,7 +7,6 @@ import pprint
 import textwrap
 import locale
 import glob
-import builtins
 import warnings
 import contextlib
 import collections.abc as cabc
@@ -29,7 +28,7 @@ from xonsh.platform import (
     ON_CYGWIN,
     os_environ,
 )
-
+from xonsh.built_ins import XSH
 from xonsh.tools import (
     always_true,
     always_false,
@@ -98,6 +97,7 @@ from xonsh.ansi_colors import (
     ansi_style_by_name,
 )
 import xonsh.prompt.base as prompt
+from xonsh.prompt.gitstatus import _DEFS as GITSTATUS_FIELD_DEFS
 
 events.doc(
     "on_envvar_new",
@@ -193,12 +193,8 @@ def to_debug(x):
     execer's debug level.
     """
     val = to_bool_or_int(x)
-    if (
-        hasattr(builtins, "__xonsh__")
-        and hasattr(builtins.__xonsh__, "execer")
-        and builtins.__xonsh__.execer is not None
-    ):
-        builtins.__xonsh__.execer.debug_level = val
+    if XSH.execer is not None:
+        XSH.execer.debug_level = val
     return val
 
 
@@ -427,7 +423,7 @@ class LsColors(cabc.MutableMapping):
     @property
     def style_name(self):
         """Current XONSH_COLOR_STYLE value"""
-        env = getattr(builtins.__xonsh__, "env", {})
+        env = getattr(XSH, "env", {})
         env_style_name = env.get("XONSH_COLOR_STYLE", "default")
         if self._style_name is None or self._style_name != env_style_name:
             self._style_name = env_style_name
@@ -479,8 +475,8 @@ class LsColors(cabc.MutableMapping):
         if filename is not None:
             cmd.append(filename)
         # get env
-        if hasattr(builtins, "__xonsh__") and hasattr(builtins.__xonsh__, "env"):
-            denv = builtins.__xonsh__.env.detype()
+        if XSH.env:
+            denv = XSH.env.detype()
         else:
             denv = None
         # run dircolors
@@ -519,7 +515,7 @@ def ensure_ls_colors_in_env(spec=None, **kwargs):
     environment. This fires exactly once upon the first time the
     ls command is called.
     """
-    env = builtins.__xonsh__.env
+    env = XSH.env
     if "LS_COLORS" not in env._d:
         # this adds it to the env too
         default_lscolors(env)
@@ -887,28 +883,33 @@ class GeneralSetting(Xettings):
         "not always happen.",
         is_configurable=False,
     )
+    XONSH_CAPTURE_ALWAYS = Var.with_default(
+        False,
+        "Try to capture output of commands run without explicit capturing.\n"
+        "If True, xonsh will capture the output of commands run directly or in ``![]``.\n"
+        "Setting to True has the following disadvantages:\n"
+        "* Some interactive commands won't work properly (like when ``git`` invokes an interactive editor).\n"
+        "  For more information see discussion at https://github.com/xonsh/xonsh/issues/3672.\n"
+        "* Stopping these commands with ^Z (i.e. ``SIGTSTP``)\n"
+        "  is disabled as it causes deadlocked terminals.\n"
+        "  ``SIGTSTP`` may still be issued and only the physical pressing\n"
+        "  of ``Ctrl+Z`` is ignored.\n\n"
+        "Regardless of this value, commands run in ``$()``, ``!()`` or with an IO redirection (``>`` or ``|``) "
+        "will always be captured.\n"
+        "Setting this to True depends on ``$THREAD_SUBPROCS`` being True.",
+    )
     THREAD_SUBPROCS = Var(
         is_bool_or_none,
         to_bool_or_none,
         bool_or_none_to_str,
         not ON_CYGWIN,
+        "Note: The ``$XONSH_CAPTURE_ALWAYS`` variable introduces finer control "
+        "and you should probably use that instead.\n\n"
         "Whether or not to try to run subrocess mode in a Python thread, "
-        "when applicable. There are various trade-offs, which normally "
-        "affects only interactive sessions.\n\nWhen True:\n\n"
-        "* Xonsh is able capture & store the stdin, stdout, and stderr \n"
+        "when trying to capture its output. There are various trade-offs.\n\n"
+        "If True, xonsh is able capture & store the stdin, stdout, and stderr \n"
         "  of threadable subprocesses.\n"
-        "* However, stopping threaded subprocs with ^Z (i.e. ``SIGTSTP``)\n"
-        "  is disabled as it causes deadlocked terminals.\n"
-        "  ``SIGTSTP`` may still be issued and only the physical pressing\n"
-        "  of ``Ctrl+Z`` is ignored.\n"
-        "* Threadable commands are run with ``PopenThread`` and threadable \n"
-        "  aliases are run with ``ProcProxyThread``.\n\n"
-        "When False:\n\n"
-        "* Xonsh may not be able to capture stdin, stdout, and stderr streams \n"
-        "  unless explicitly asked to do so.\n"
-        "* Stopping the thread with ``Ctrl+Z`` yields to job control.\n"
-        "* Threadable commands are run with ``Popen`` and threadable \n"
-        "  alias are run with ``ProcProxy``.\n\n"
+        "The disadvantages are listed in ``$XONSH_CAPTURE_ALWAYS``.\n"
         "The desired effect is often up to the command, user, or use case.\n\n"
         "None values are for internal use only and are used to turn off "
         "threading when loading xonshrc files. This is done because Bash "
@@ -1003,11 +1004,14 @@ class GeneralSetting(Xettings):
         bool_or_int_to_str,
         0,
         "Sets the xonsh debugging level. This may be an integer or a boolean. "
-        "Setting this variable prior to stating xonsh to ``1`` or ``True`` "
-        "will suppress amalgamated imports. Setting it to ``2`` will get some "
-        "basic information like input transformation, command replacement. "
-        "With ``3`` or a higher number will make more debugging information "
+        "Setting it to ``1`` will get some basic information like input transformation, command replacement. "
+        "With ``2`` or a higher number will make more debugging information "
         "presented, like PLY parsing messages.",
+        is_configurable=False,
+    )
+    XONSH_NO_AMALGAMATE = Var.with_default(
+        False,
+        "Setting this variable prior to starting xonsh to a truthy value will suppress amalgamated imports.",
         is_configurable=False,
     )
     XONSH_DATA_DIR = Var.with_default(
@@ -1081,6 +1085,10 @@ class GeneralSetting(Xettings):
     XONSH_TRACE_SUBPROC = Var.with_default(
         False,
         "Set to ``True`` to show arguments list of every executed subprocess command.",
+    )
+    XONSH_TRACE_COMPLETIONS = Var.with_default(
+        False,
+        "Set to ``True`` to show completers invoked and their return values.",
     )
     XONSH_TRACEBACK_LOGFILE = Var(
         is_logfile_opt,
@@ -1385,20 +1393,26 @@ class PromptSetting(Xettings):
         is_configurable=False,
     )
     XONSH_GITSTATUS_ = Var.with_default(
-        "",
+        None,
         "Symbols for gitstatus prompt. Default values are: \n\n"
-        "* ``XONSH_GITSTATUS_HASH``: ``:``\n"
-        "* ``XONSH_GITSTATUS_BRANCH``: ``{CYAN}``\n"
-        "* ``XONSH_GITSTATUS_OPERATION``: ``{CYAN}``\n"
-        "* ``XONSH_GITSTATUS_STAGED``: ``{RED}●``\n"
-        "* ``XONSH_GITSTATUS_CONFLICTS``: ``{RED}×``\n"
-        "* ``XONSH_GITSTATUS_CHANGED``: ``{BLUE}+``\n"
-        "* ``XONSH_GITSTATUS_UNTRACKED``: ``…``\n"
-        "* ``XONSH_GITSTATUS_STASHED``: ``⚑``\n"
-        "* ``XONSH_GITSTATUS_CLEAN``: ``{BOLD_GREEN}✓``\n"
-        "* ``XONSH_GITSTATUS_AHEAD``: ``↑·``\n"
-        "* ``XONSH_GITSTATUS_BEHIND``: ``↓·``\n",
+        + "\n".join(
+            (
+                f"* ``XONSH_GITSTATUS_{fld.name}``: ``{fld.value}``"
+                for fld in GITSTATUS_FIELD_DEFS
+            )
+        ),
         pattern="XONSH_GITSTATUS_*",
+    )
+    XONSH_GITSTATUS_FIELDS_HIDDEN = Var.with_default(
+        (),
+        "Fields to hide in {gitstatus} prompt (all fields below are shown by default.) \n\n"
+        + "\n".join(
+            (
+                f"* ``{fld.name}``\n"
+                for fld in GITSTATUS_FIELD_DEFS
+                if not fld.name.startswith("HASH")
+            )
+        ),
     )
     XONSH_HISTORY_MATCH_ANYWHERE = Var.with_default(
         False,
@@ -2148,7 +2162,7 @@ def _yield_executables(directory, name):
 
 def locate_binary(name):
     """Locates an executable on the file system."""
-    return builtins.__xonsh__.commands_cache.locate_binary(name)
+    return XSH.commands_cache.locate_binary(name)
 
 
 def xonshrc_context(

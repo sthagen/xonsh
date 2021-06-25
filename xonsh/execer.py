@@ -15,8 +15,9 @@ from xonsh.tools import (
     replace_logical_line,
     balanced_parens,
     starting_whitespace,
+    ends_with_colon_token,
 )
-from xonsh.built_ins import load_builtins, unload_builtins
+from xonsh.built_ins import XSH
 
 
 class Execer(object):
@@ -43,7 +44,7 @@ class Execer(object):
         unload : bool, optional
             Whether or not to unload xonsh builtins upon deletion.
         xonsh_ctx : dict or None, optional
-            Xonsh xontext to load as builtins.__xonsh__.ctx
+            Xonsh xontext to load as xonsh.built_ins.XSH.ctx
         scriptcache : bool, optional
             Whether or not to use a precompiled bytecode cache when execing
             code, default: True.
@@ -60,11 +61,11 @@ class Execer(object):
         self.scriptcache = scriptcache
         self.cacheall = cacheall
         self.ctxtransformer = CtxAwareTransformer(self.parser)
-        load_builtins(execer=self, ctx=xonsh_ctx)
+        XSH.load(execer=self, ctx=xonsh_ctx)
 
     def __del__(self):
         if self.unload:
-            unload_builtins()
+            XSH.unload()
 
     def parse(self, input, ctx, mode="exec", filename=None, transform=True):
         """Parses xonsh code in a context-aware fashion. For context-free
@@ -75,7 +76,7 @@ class Execer(object):
             filename = self.filename
         if not transform:
             return self.parser.parse(
-                input, filename=filename, mode=mode, debug_level=(self.debug_level > 2)
+                input, filename=filename, mode=mode, debug_level=(self.debug_level >= 2)
             )
 
         # Parsing actually happens in a couple of phases. The first is a
@@ -128,7 +129,9 @@ class Execer(object):
             filename = self.filename
             self.filename = self._default_filename
         if glbs is None or locs is None:
-            frame = inspect.stack()[stacklevel][0]
+            frame = inspect.currentframe()
+            for _ in range(stacklevel):
+                frame = frame.f_back
             glbs = frame.f_globals if glbs is None else glbs
             locs = frame.f_locals if locs is None else locs
         ctx = set(dir(builtins)) | set(glbs.keys()) | set(locs.keys())
@@ -196,7 +199,7 @@ class Execer(object):
         self, line, sbpline, last_error_line, last_error_col, maxcol=None
     ):
         """print some debugging info if asked for."""
-        if self.debug_level > 1:
+        if self.debug_level >= 1:
             msg = "{0}:{1}:{2}{3} - {4}\n" "{0}:{1}:{2}{3} + {5}"
             mstr = "" if maxcol is None else ":" + str(maxcol)
             msg = msg.format(
@@ -220,7 +223,7 @@ class Execer(object):
                     input,
                     filename=filename,
                     mode=mode,
-                    debug_level=(self.debug_level > 2),
+                    debug_level=(self.debug_level >= 2),
                 )
                 parsed = True
             except IndentationError as e:
@@ -266,7 +269,7 @@ class Execer(object):
                     input = "\n".join(lines)
                     continue
 
-                if last_error_line > 1 and lines[idx - 1].rstrip()[-1:] == ":":
+                if last_error_line > 1 and ends_with_colon_token(lines[idx - 1]):
                     # catch non-indented blocks and raise error.
                     prev_indent = len(lines[idx - 1]) - len(lines[idx - 1].lstrip())
                     curr_indent = len(lines[idx]) - len(lines[idx].lstrip())

@@ -4,8 +4,8 @@ import subprocess
 from typing import List
 
 
-$XONSH_DEBUG = 1
 $RAISE_SUBPROC_ERROR = True
+# $XONSH_NO_AMALGAMATE = 1
 # $XONSH_TRACE_SUBPROC = True
 
 
@@ -24,43 +24,36 @@ def test(ns: argparse.Namespace):
     `xonsh run-tests.xsh -- --junitxml=junit/test-results.%%d.xml`
     """
 
-    run_separately = [
-        'tests/test_main.py',
-        'tests/test_ptk_highlight.py',
-    ]
-
-
-    ignores = []
-    for fname in run_separately:
-        ignores.append('--ignore')
-        ignores.append(fname)
-
     args = ns.pytest_args
 
+    if (not ns.no_amalgam) and not $(xonsh -c "import xonsh.main; print(xonsh.main.__file__, end='')").endswith("__amalgam__.py"):
+        echo "Tests need to run from the amalgamated xonsh! install with `pip install .` (without `-e`)"
+        exit(1)
+
     if ns.report_coverage:
-        ![coverage run -m pytest @(_replace_args(args, 0)) @(ignores)]
-        for index, fname in enumerate(run_separately):
-            ![coverage run --append -m pytest @(_replace_args(args, index+1)) @(fname)]
-        ![coverage report -m]
-        ![coverage xml]
+        $XONSH_NO_AMALGAMATE = True
+        ![pytest @(_replace_args(args, 0)) --cov --cov-report=xml --cov-report=term]
     else:
-        ![pytest @(_replace_args(args, 0)) @(ignores)]
-        for index, fname in enumerate(run_separately):
-            ![pytest @(_replace_args(args, index + 1)) @(fname)]
+        ![pytest @(_replace_args(args, 0))]
 
 
 def qa(ns: argparse.Namespace):
     """QA checks"""
+    $XONSH_NO_AMALGAMATE = True
 
     echo "---------- Check Black formatter -----------"
-    black --check xonsh xontrib
+    black --check xonsh xontrib tests
 
     echo "---------- Running flake8 ----------"
     python -m flake8
 
     echo "---------- Running mypy ----------"
     mypy --version
+    # todo: add xontrib folder here
     mypy xonsh --exclude xonsh/ply
+
+    echo "---------- Running news items check ----------"
+    pytest -m news
 
 
 if __name__ == '__main__':
@@ -78,9 +71,17 @@ if __name__ == '__main__':
     )
     test_parser.add_argument(
         '--report-coverage',
+        '-c',
         action="store_true",
         default=False,
         help="Report coverage at the end of the test",
+    )
+    test_parser.add_argument(
+        '--no-amalgam',
+        '-n',
+        action="store_true",
+        default=False,
+        help="Disable amalgamation check.",
     )
     test_parser.set_defaults(func=test)
 

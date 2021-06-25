@@ -75,6 +75,11 @@ def test_bad_indent():
         check_parse(code)
 
 
+def test_comment_colon_ending():
+    code = "# this is a comment:\necho hello"
+    assert check_parse(code)
+
+
 def test_good_rhs_subproc():
     # nonsense but parsable
     code = "str().split() | ![grep exit]\n"
@@ -158,3 +163,10 @@ def test_annotated_assign():
 def test_exec_eol():
     locs = dict()
     assert check_exec("a=0", locs=locs) and check_exec("a=0\n", locs=locs)
+
+
+def test_exec_print(capsys):
+    ls = {"nested": "some long list"}
+    check_exec("print(ls)", locs=dict(ls=ls))
+    out, err = capsys.readouterr()
+    assert out.strip() == repr(ls)

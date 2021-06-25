@@ -1,9 +1,11 @@
 """Xonsh completer tools."""
-import builtins
+import inspect
 import textwrap
 import typing as tp
 from functools import wraps
 
+from xonsh.built_ins import XSH
+from xonsh.lazyasd import lazyobject
 from xonsh.parsers.completion_context import CompletionContext, CommandContext
 
 
@@ -20,7 +22,7 @@ def get_filter_function():
     Return an appropriate filtering function for completions, given the valid
     of $CASE_SENSITIVE_COMPLETIONS
     """
-    csc = builtins.__xonsh__.env.get("CASE_SENSITIVE_COMPLETIONS")
+    csc = XSH.env.get("CASE_SENSITIVE_COMPLETIONS")
     if csc:
         return _filter_normal
     else:
@@ -93,7 +95,12 @@ class RichCompletion(str):
         return str(self)
 
     def __repr__(self):
-        attrs = ", ".join(f"{attr}={value!r}" for attr, value in self.__dict__.items())
+        # don't print default values
+        attrs = ", ".join(
+            f"{name}={getattr(self, name)!r}"
+            for name, default in RICH_COMPLETION_DEFAULTS
+            if getattr(self, name) != default
+        )
         return f"RichCompletion({self.value!r}, {attrs})"
 
     def replace(self, **kwargs):
@@ -104,6 +111,16 @@ class RichCompletion(str):
         )
         default_kwargs.update(kwargs)
         return RichCompletion(**default_kwargs)
+
+
+@lazyobject
+def RICH_COMPLETION_DEFAULTS():
+    """The ``__init__`` parameters' default values (excluding ``self`` and ``value``)."""
+    return [
+        (name, param.default)
+        for name, param in inspect.signature(RichCompletion.__init__).parameters.items()
+        if name not in ("self", "value")
+    ]
 
 
 Completion = tp.Union[RichCompletion, str]

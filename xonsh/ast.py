@@ -3,7 +3,6 @@
 # These are imported into our module namespace for the benefit of parser.py.
 # pylint: disable=unused-import
 import sys
-import builtins
 from ast import (
     Module,
     Num,
@@ -109,6 +108,7 @@ from ast import Ellipsis as EllipsisNode
 import textwrap
 import itertools
 
+from xonsh.built_ins import XSH
 from xonsh.tools import subproc_toks, find_next_break, get_logical_line
 
 from ast import (
@@ -314,8 +314,8 @@ def isexpression(node, ctx=None, *args, **kwargs):
     # parse string to AST
     if isinstance(node, str):
         node = node if node.endswith("\n") else node + "\n"
-        ctx = builtins.__xonsh__.ctx if ctx is None else ctx
-        node = builtins.__xonsh__.execer.parse(node, ctx, *args, **kwargs)
+        ctx = XSH.ctx if ctx is None else ctx
+        node = XSH.execer.parse(node, ctx, *args, **kwargs)
     # determin if expresission-like enough
     if isinstance(node, (Expr, Expression)):
         isexpr = True
@@ -437,7 +437,7 @@ class CtxAwareTransformer(NodeTransformer):
                 spline,
                 mode=self.mode,
                 filename=self.filename,
-                debug_level=(self.debug_level > 2),
+                debug_level=(self.debug_level >= 2),
             )
             newnode = newnode.body
             if not isinstance(newnode, AST):
@@ -445,7 +445,7 @@ class CtxAwareTransformer(NodeTransformer):
                 newnode = newnode[0]
             increment_lineno(newnode, n=node.lineno - 1)
             newnode.col_offset = node.col_offset
-            if self.debug_level > 1:
+            if self.debug_level >= 1:
                 msg = "{0}:{1}:{2}{3} - {4}\n" "{0}:{1}:{2}{3} + {5}"
                 mstr = "" if maxcol is None else ":" + str(maxcol)
                 msg = msg.format(self.filename, node.lineno, mincol, mstr, line, spline)

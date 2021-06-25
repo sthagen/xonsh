@@ -5,7 +5,6 @@ import sys
 import time
 import array
 import signal
-import builtins
 import threading
 import subprocess
 
@@ -13,6 +12,7 @@ import xonsh.lazyasd as xl
 import xonsh.platform as xp
 import xonsh.tools as xt
 import xonsh.lazyimps as xli
+from xonsh.built_ins import XSH
 
 from xonsh.procs.readers import (
     BufferedFDParallelReader,
@@ -56,7 +56,7 @@ class PopenThread(threading.Thread):
         self.daemon = True
 
         self.lock = threading.RLock()
-        env = builtins.__xonsh__.env
+        env = XSH.env
         # stdin setup
         self.orig_stdin = stdin
         if stdin is None:
@@ -214,7 +214,7 @@ class PopenThread(threading.Thread):
         if reader is None:
             return 0
         i = -1
-        for i, chunk in enumerate(iter(reader.read_queue, b"")):
+        for i, chunk in enumerate(iter(reader.read_queue, b"")):  # noqa
             self._alt_mode_switch(chunk, writer, stdbuf)
         if i >= 0:
             writer.flush()

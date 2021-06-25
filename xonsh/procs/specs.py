@@ -7,10 +7,10 @@ import shlex
 import signal
 import inspect
 import pathlib
-import builtins
 import subprocess
 import contextlib
 
+from xonsh.built_ins import XSH
 import xonsh.tools as xt
 import xonsh.lazyasd as xl
 import xonsh.platform as xp
@@ -45,7 +45,7 @@ def is_app_execution_alias(fname):
 def _is_binary(fname, limit=80):
     try:
         with open(fname, "rb") as f:
-            for i in range(limit):
+            for _ in range(limit):
                 char = f.read(1)
                 if char == b"\0":
                     return True
@@ -101,7 +101,7 @@ def get_script_subproc_command(fname, args):
         # Windows can execute various filetypes directly
         # as given in PATHEXT
         _, ext = os.path.splitext(fname)
-        if ext.upper() in builtins.__xonsh__.env.get("PATHEXT"):
+        if ext.upper() in XSH.env.get("PATHEXT"):
             return [fname] + args
     # find interpreter
     with open(fname, "rb") as f:
@@ -356,7 +356,7 @@ class SubprocSpec:
         self.args = list(cmd)
         self.alias = None
         self.alias_name = None
-        self.alias_stack = builtins.__xonsh__.env.get("__ALIAS_STACK", "").split(":")
+        self.alias_stack = XSH.env.get("__ALIAS_STACK", "").split(":")
         self.binary_loc = None
         self.is_proxy = False
         self.background = False
@@ -444,7 +444,7 @@ class SubprocSpec:
         kwargs = {n: getattr(self, n) for n in self.kwnames}
         self.prep_env(kwargs)
         if callable(self.alias):
-            kwargs["env"]["__ALIAS_NAME"] = self.alias_name
+            kwargs["env"]["__ALIAS_NAME"] = self.alias_name or ""
             p = self.cls(self.alias, self.cmd, **kwargs)
         else:
             self.prep_preexec_fn(kwargs, pipeline_group=pipeline_group)
@@ -458,8 +458,10 @@ class SubprocSpec:
         return p
 
     def _run_binary(self, kwargs):
+        if not self.cmd[0]:
+            raise xt.XonshError("xonsh: subprocess mode: command is empty")
+        bufsize = 1
         try:
-            bufsize = 1
             p = self.cls(self.cmd, bufsize=bufsize, **kwargs)
         except PermissionError:
             e = "xonsh: subprocess mode: permission denied: {0}"
@@ -472,16 +474,16 @@ class SubprocSpec:
                         ["man", cmd0.rstrip("?")], bufsize=bufsize, **kwargs
                     )
             e = "xonsh: subprocess mode: command not found: {0}".format(cmd0)
-            env = builtins.__xonsh__.env
-            sug = xt.suggest_commands(cmd0, env, builtins.aliases)
+            env = XSH.env
+            sug = xt.suggest_commands(cmd0, env, XSH.aliases)
             if len(sug.strip()) > 0:
-                e += "\n" + xt.suggest_commands(cmd0, env, builtins.aliases)
+                e += "\n" + xt.suggest_commands(cmd0, env, XSH.aliases)
             raise xt.XonshError(e)
         return p
 
     def prep_env(self, kwargs):
         """Prepares the environment to use in the subprocess."""
-        with builtins.__xonsh__.env.swap(self.env) as env:
+        with XSH.env.swap(self.env) as env:
             denv = env.detype()
         if xp.ON_WINDOWS:
             # Over write prompt variable as xonsh's $PROMPT does
@@ -493,7 +495,7 @@ class SubprocSpec:
         """Prepares the 'preexec_fn' keyword argument"""
         if not xp.ON_POSIX:
             return
-        if not builtins.__xonsh__.env.get("XONSH_INTERACTIVE"):
+        if not XSH.env.get("XONSH_INTERACTIVE"):
             return
         if pipeline_group is None or xp.ON_WSL:
             # If there is no pipeline group
@@ -530,14 +532,14 @@ class SubprocSpec:
             return os.path.basename(self.binary_loc)
 
     def _pre_run_event_fire(self, name):
-        events = builtins.events
+        events = XSH.builtins.events
         event_name = "on_pre_spec_run_" + name
         if events.exists(event_name):
             event = getattr(events, event_name)
             event.fire(spec=self)
 
     def _post_run_event_fire(self, name, proc):
-        events = builtins.events
+        events = XSH.builtins.events
         event_name = "on_post_spec_run_" + name
         if events.exists(event_name):
             event = getattr(events, event_name)
@@ -553,6 +555,8 @@ class SubprocSpec:
         modifications and adjustments based on the actual cmd that
         was received.
         """
+        if not cmd:
+            raise xt.XonshError("xonsh: subprocess mode: command is empty")
         # modifications that do not alter cmds may come before creating instance
         spec = kls(cmd, cls=cls, **kwargs)
         # modifications that alter cmds must come after creating instance
@@ -602,7 +606,7 @@ class SubprocSpec:
         if callable(cmd0):
             alias = cmd0
         else:
-            alias = builtins.aliases.get(cmd0, None)
+            alias = XSH.aliases.get(cmd0, None)
             if alias is not None:
                 self.alias_name = cmd0
         self.alias = alias
@@ -627,12 +631,12 @@ class SubprocSpec:
             self.alias is None
             and self.binary_loc is None
             and len(self.cmd) == 1
-            and builtins.__xonsh__.env.get("AUTO_CD")
+            and XSH.env.get("AUTO_CD")
             and os.path.isdir(self.cmd[0])
         ):
             return
         self.cmd.insert(0, "cd")
-        self.alias = builtins.aliases.get("cd", None)
+        self.alias = XSH.aliases.get("cd", None)
 
     def resolve_executable_commands(self):
         """Resolve command executables, if applicable."""
@@ -663,7 +667,7 @@ class SubprocSpec:
         if not callable(alias):
             return
         self.is_proxy = True
-        env = builtins.__xonsh__.env
+        env = XSH.env
         thable = env.get("THREAD_SUBPROCS") and getattr(
             alias, "__xonsh_threadable__", True
         )
@@ -718,7 +722,7 @@ def _safe_pipe_properties(fd, use_tty=False):
 
 
 def _update_last_spec(last):
-    env = builtins.__xonsh__.env
+    env = XSH.env
     captured = last.captured
     last.last_in_pipeline = True
     if not captured:
@@ -727,9 +731,10 @@ def _update_last_spec(last):
     if callable_alias:
         pass
     else:
-        cmds_cache = builtins.__xonsh__.commands_cache
+        cmds_cache = XSH.commands_cache
         thable = (
             env.get("THREAD_SUBPROCS")
+            and (captured != "hiddenobject" or env.get("XONSH_CAPTURE_ALWAYS"))
             and cmds_cache.predict_threadable(last.args)
             and cmds_cache.predict_threadable(last.cmd)
         )
@@ -753,9 +758,9 @@ def _update_last_spec(last):
         r, w = os.pipe()
         last.stdout = safe_open(w, "wb")
         last.captured_stdout = safe_open(r, "rb")
-    elif builtins.__xonsh__.stdout_uncaptured is not None:
+    elif XSH.stdout_uncaptured is not None:
         last.universal_newlines = True
-        last.stdout = builtins.__xonsh__.stdout_uncaptured
+        last.stdout = XSH.stdout_uncaptured
         last.captured_stdout = last.stdout
     elif xp.ON_WINDOWS and not callable_alias:
         last.universal_newlines = True
@@ -771,12 +776,14 @@ def _update_last_spec(last):
     # set standard error
     if last.stderr is not None:
         pass
+    elif captured == "stdout":
+        pass
     elif captured == "object":
         r, w = os.pipe()
         last.stderr = safe_open(w, "w")
         last.captured_stderr = safe_open(r, "r")
-    elif builtins.__xonsh__.stderr_uncaptured is not None:
-        last.stderr = builtins.__xonsh__.stderr_uncaptured
+    elif XSH.stderr_uncaptured is not None:
+        last.stderr = XSH.stderr_uncaptured
         last.captured_stderr = last.stderr
     elif xp.ON_WINDOWS and not callable_alias:
         last.universal_newlines = True
@@ -832,12 +839,12 @@ def cmds_to_specs(cmds, captured=False, envs=None):
 
 
 def _should_set_title(captured=False):
-    env = builtins.__xonsh__.env
+    env = XSH.env
     return (
         env.get("XONSH_INTERACTIVE")
         and not env.get("XONSH_STORE_STDOUT")
         and captured not in STDOUT_CAPTURE_KINDS
-        and builtins.__xonsh__.shell is not None
+        and XSH.shell is not None
     )
 
 
@@ -854,7 +861,7 @@ def run_subproc(cmds, captured=False, envs=None):
 
     Lastly, the captured argument affects only the last real command.
     """
-    if builtins.__xonsh__.env.get("XONSH_TRACE_SUBPROC"):
+    if XSH.env.get("XONSH_TRACE_SUBPROC"):
         print(f"TRACE SUBPROC: {cmds}, captured={captured}", file=sys.stderr)
 
     specs = cmds_to_specs(cmds, captured=captured, envs=envs)
@@ -878,7 +885,7 @@ def run_subproc(cmds, captured=False, envs=None):
         )
     if _should_set_title(captured=captured):
         # set title here to get currently executing command
-        pause_call_resume(proc, builtins.__xonsh__.shell.settitle)
+        pause_call_resume(proc, XSH.shell.settitle)
     else:
         # for some reason, some programs are in a stopped state when the flow
         # reaches this point, hence a SIGCONT should be sent to `proc` to make
